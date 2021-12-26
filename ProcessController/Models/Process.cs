@@ -1,16 +1,18 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
-namespace ProcessController.Models
+﻿namespace ProcessController.Models
 {
+    /// <summary>
+    /// Process Class
+    /// </summary>
     public class Process
     {
-        public int? PID { get; set; }
+        /// <summary>
+        /// Gets or sets the Process Id
+        /// </summary>
+        public int PID { get; set; }
+
+        /// <summary>
+        /// Gets or sets the process name
+        /// </summary>
         public string Name { get; set; }
-        public string Status { get; set; }
-        public Monitor Monitor { get; set; }
     }
 }

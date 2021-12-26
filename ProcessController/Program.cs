@@ -1,10 +1,10 @@
-using ProcessController.Services;
 using System;
-using System.Collections.Generic;
 using System.IO.Abstractions;
-using System.Linq;
-using System.Threading.Tasks;
 using System.Windows.Forms;
+using ProcessController.Components;
+using ProcessController.Factories;
+using ProcessController.Forms;
+using ProcessController.Services;
 
 namespace ProcessController
 {
@@ -21,14 +21,17 @@ namespace ProcessController
             Application.SetHighDpiMode(HighDpiMode.SystemAware);
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
-            IMonitorService monitorService = new MonitorService(AppDomain.CurrentDomain.BaseDirectory + "/saved/monitors.db");
-            IProcessMonitorService processMonitorService = new ProcessMonitorService();
-            MainForm mainForm = new MainForm(monitorService, processMonitorService).SetupDataGrid();
-            Timer timer = new Timer();
+            IWatcherService watcherService = new WatcherService(AppDomain.CurrentDomain.BaseDirectory, "/saved/monitors.db");
+            IFormFactory formFactory = new FormFactory(watcherService);
+            ApplicationController controller = new ApplicationController(formFactory, watcherService);
+            controller.Initialize();
+            //IProcessMonitorService processMonitorService = new ProcessMonitorService();
+            
+            /*Timer timer = new Timer();
             timer.Interval = 5000;
             timer.Tick += new EventHandler((object sender, EventArgs args) => mainForm.OnTick());
-            timer.Enabled = true;
-            Application.Run(mainForm);
+            timer.Enabled = true;*/
+            Application.Run(controller.GetForm());
         }
 
         static void Setup(IFileSystem fileSystem, string basePath)
@@ -36,7 +39,7 @@ namespace ProcessController
             if (!fileSystem.Directory.Exists(basePath + "/saved"))
             {
                 fileSystem.Directory.CreateDirectory(basePath + "/saved");
-            } 
+            }
 
             if (!fileSystem.File.Exists(basePath + "/saved/monitors.db"))
             {
