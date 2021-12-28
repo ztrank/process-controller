@@ -1,298 +1,166 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.IO.Abstractions;
-using System.Text.Json;
+using System.Linq;
+using System.Text;
 using System.Threading.Tasks;
+using ProcessController.Events;
 using ProcessController.Models;
 
 namespace ProcessController.Services
 {
+    /// <summary>
+    /// Watcher Service
+    /// </summary>
     public class WatcherService : IWatcherService
     {
         /// <summary>
-        /// File System
+        /// Save Service
         /// </summary>
-        private readonly IFileSystem fileSystem;
+        private readonly ISaveService saveService;
 
         /// <summary>
-        /// Base Directory
+        /// Log Service
         /// </summary>
-        private readonly string baseDirectory;
+        private readonly ILogService<WatcherService> logService;
 
         /// <summary>
-        /// Path from base directory to watcher file
+        /// Event Bus
         /// </summary>
-        private readonly string watcherFilePath;
+        private readonly IEventBus eventBus;
 
         /// <summary>
-        /// Event fired when the list of watchers is loaded successfully
+        /// 
         /// </summary>
-        public event EventHandler<List<Watcher>> OnLoadSuccess;
-
-        /// <summary>
-        /// Event fired when loading watchers fails
-        /// </summary>
-        public event EventHandler<string> OnLoadError;
-
-        /// <summary>
-        /// Event fired when saving all is successful
-        /// </summary>
-        public event EventHandler OnSaveAllSuccess;
-
-        /// <summary>
-        /// Event Fired when saving all errors
-        /// </summary>
-        public event EventHandler<string> OnSaveAllError;
-
-        /// <summary>
-        /// Event fired when removing a watcher is sucessful
-        /// </summary>
-        public event EventHandler OnRemoveSuccess;
-
-        /// <summary>
-        /// Event fired when removing a watcher errors
-        /// </summary>
-        public event EventHandler<string> OnRemoveError;
-
-        /// <summary>
-        /// Event fired when updating a watcher is successful
-        /// </summary>
-        public event EventHandler OnUpdateSuccess;
-
-        /// <summary>
-        /// Event fired when updating a watcher errors
-        /// </summary>
-        public event EventHandler<string> OnUpdateError;
-
-        /// <summary>
-        /// Event fired for all errors
-        /// </summary>
-        public event EventHandler<string> OnError;
-
-        /// <summary>
-        /// Event fired when adding a watcher errors
-        /// </summary>
-        public event EventHandler<string> OnAddError;
-
-        /// <summary>
-        /// Event fired when adding a watcher is successful
-        /// </summary>
-        public event EventHandler<Watcher> OnAddSuccess;
-
-        /// <summary>
-        /// Instantiates the Watcher Service
-        /// </summary>
-        /// <param name="baseDirectory">Base Directory</param>
-        /// <param name="watcherFilePath">Path to watcher file</param>
-        public WatcherService(string baseDirectory, string watcherFilePath) 
-            : this(new FileSystem(), baseDirectory, watcherFilePath)
+        /// <param name="saveService"></param>
+        /// <param name="logService"></param>
+        public WatcherService(
+            IEventBus eventBus,
+            ISaveService saveService,
+            ILogService<WatcherService> logService)
         {
-
+            this.eventBus = eventBus;
+            this.saveService = saveService;
+            this.logService = logService;
         }
 
         /// <summary>
-        /// Instantiates the Watcher Service
+        /// Gets all watchers
         /// </summary>
-        /// <param name="fileSystem">File System implementation</param>
-        /// <param name="baseDirectory">Base Directory</param>
-        /// <param name="watcherFilePath">Path to watcher file</param>
-        public WatcherService(IFileSystem fileSystem, string baseDirectory, string watcherFilePath)
+        /// <returns>List of all watchers</returns>
+        public List<Watcher> Get()
         {
-            this.fileSystem = fileSystem;
-            this.baseDirectory = baseDirectory;
-            this.watcherFilePath = watcherFilePath;
+            return this.saveService.Load().Watchers;
         }
 
         /// <summary>
-        /// Begins loading all watchers
+        /// Gets a watcher by name
         /// </summary>
-        public async void LoadAll()
+        /// <param name="name">Name to search for</param>
+        /// <returns>Watcher, new if not found</returns>
+        public Watcher Get(string name)
         {
-            await this.LoadAllWatchers();
+            Watcher watcher = this.saveService.Load().Watchers.Find(w => w.Name == name);
+
+            if (watcher == null)
+            {
+                this.logService.Info("Watcher not found: " + name + ", creating new watcher");
+                watcher = new Watcher()
+                {
+                    Name = name
+                };
+            }
+
+            return watcher;
         }
 
         /// <summary>
-        /// Adds the watcher
+        /// Gets a watcher by the process name
         /// </summary>
-        /// <param name="watcher">Watcher to add</param>
-        public async void Add(Watcher watcher)
+        /// <param name="processName">Process Name</param>
+        /// <returns>Watcher, new if not found</returns>
+        public Watcher GetByProcessName(string processName)
         {
-            await this.AddWatcher(watcher);
+            Watcher watcher = this.saveService.Load().Watchers.Find(w => w.ProcessName == processName);
+
+            if (watcher == null)
+            {
+                this.logService.Debug("Watcher not found for process: " + processName + ", creating new watcher");
+                watcher = new Watcher()
+                {
+                    ProcessName = processName
+                };
+            }
+
+            return watcher;
         }
 
         /// <summary>
-        /// Updates the watcher
+        /// Inserts a new Watcher
+        /// </summary>
+        /// <param name="watcher">New Watcher to add</param>
+        public void Create(Watcher watcher)
+        {
+            this.Validate(watcher);
+            Watcher existingByName = this.Get(watcher.Name);
+            Watcher existingByProcess = this.GetByProcessName(watcher.ProcessName);
+            
+            if (existingByName != null)
+            {
+                this.logService.Error("Duplicate Watcher Name: " + watcher.Name);
+                throw new Exception("Duplicate Name");
+            }
+
+            if (existingByProcess != null)
+            {
+                this.logService.Error("Duplicate Process Name: " + watcher.ProcessName);
+                throw new Exception("Duplicate Process Name");
+            }
+
+            this.saveService.Save(watcher);
+            this.eventBus.Publish(this, new WatcherServiceCreateEvent(watcher));
+        }
+
+        /// <summary>
+        /// Updates an existing watcher
         /// </summary>
         /// <param name="watcher">Watcher to update</param>
-        public async void Update(Watcher watcher)
+        public void Update(Watcher watcher)
         {
-            await this.UpdateWatcher(watcher);
+            this.Validate(watcher);
+            Watcher existingByName = this.Get(watcher.Name);
+
+            if (existingByName == null)
+            {
+                this.logService.Error("Unknown Watcher: " + watcher.Name);
+                throw new Exception("Unknown Watcher");
+            }
+
+            this.saveService.Save(watcher);
         }
 
         /// <summary>
-        /// Saves the list of watchers
+        /// Validates the watcher's fields
         /// </summary>
-        /// <param name="watchers">List of watchers to save</param>
-        public async void SaveAll(List<Watcher> watchers)
+        /// <param name="watcher">Watcher to validate</param>
+        private void Validate(Watcher watcher)
         {
-            await this.SaveAllWatchers(watchers);
-        }
-
-        /// <summary>
-        /// Removes the watcher
-        /// </summary>
-        /// <param name="watcher">Watcher to remove</param>
-        public async void Remove(Watcher watcher)
-        {
-            await this.RemoveWatcher(watcher);
-        }
-
-        /// <summary>
-        /// Loads all watchers and invokes success or error events
-        /// </summary>
-        /// <returns>Empty Task</returns>
-        private async Task LoadAllWatchers()
-        {
-            try
+            if (string.IsNullOrWhiteSpace(watcher.Name))
             {
-                List<Watcher> watchers = await this.GetWatchers();
-                this.OnLoadSuccess?.Invoke(this, watchers);
-            }
-            catch (Exception ex)
-            {
-                this.OnLoadError?.Invoke(this, ex.Message);
-                this.OnError?.Invoke(this, ex.Message);
-            }
-        }
-
-        /// <summary>
-        /// Adds the watcher and invokes success or error events
-        /// </summary>
-        /// <param name="watcher">Watcher to add</param>
-        /// <returns>Empty Task</returns>
-        private async Task AddWatcher(Watcher watcher)
-        {
-            try
-            {
-                List<Watcher> watchers = await this.GetWatchers();
-                int index = watchers.FindIndex(w => w.Name == watcher.Name);
-                
-                if (index > -1)
-                {
-                    throw new Exception("A watcher named " + watcher.Name + " already exists");
-                }
-
-                watcher.Order = watchers.Count;
-                watchers.Add(watcher);
-                await this.SaveWatchers(watchers);
-                this.OnAddSuccess?.Invoke(this, watcher);
-            } 
-            catch (Exception ex)
-            {
-                this.OnAddError?.Invoke(this, ex.Message);
-                this.OnError?.Invoke(this, ex.Message);
-            }
-        }
-
-        /// <summary>
-        /// Updates the watcher and invokes success or error events
-        /// </summary>
-        /// <param name="watcher">Watcher to update</param>
-        /// <returns>Empty Task</returns>
-        private async Task UpdateWatcher(Watcher watcher)
-        {
-            try
-            {
-                List<Watcher> watchers = await this.GetWatchers();
-                int index = watchers.FindIndex(w => w.Name == watcher.Name);
-
-                if (index < 0)
-                {
-                    throw new Exception("Unable to update watcher. No matching name.");
-                }
-
-                watchers[index] = watcher;
-
-                await this.SaveWatchers(watchers);
-                this.OnUpdateSuccess?.Invoke(this, new EventArgs());
-            }
-            catch (Exception ex)
-            {
-                this.OnUpdateError?.Invoke(this, ex.Message);
-                this.OnError?.Invoke(this, ex.Message);
-            }
-        }
-
-        /// <summary>
-        /// Saves all the watchers and invokes success or error event
-        /// </summary>
-        /// <param name="watchers">Watchers to save</param>
-        /// <returns>Empty Task</returns>
-        private async Task SaveAllWatchers(List<Watcher> watchers)
-        {
-            try
-            {
-                await this.SaveWatchers(watchers);
-                this.OnSaveAllSuccess?.Invoke(this, new EventArgs());
-            }
-            catch (Exception ex)
-            {
-                this.OnSaveAllError?.Invoke(this, ex.Message);
-                this.OnError?.Invoke(this, ex.Message);
-            }
-        }
-
-        /// <summary>
-        /// Removes watcher and invokes success or error event
-        /// </summary>
-        /// <param name="watcher">Watcher to remove</param>
-        /// <returns>Empty Task</returns>
-        private async Task RemoveWatcher(Watcher watcher)
-        {
-            try
-            {
-                List<Watcher> watchers = await this.GetWatchers();
-                int index = watchers.FindIndex(w => w.Name == watcher.Name);
-                
-                if (index > -1)
-                {
-                    watchers.RemoveAt(index);
-                }
-
-                await this.SaveAllWatchers(watchers);
-                this.OnRemoveSuccess?.Invoke(this, new EventArgs());
-            }
-            catch (Exception ex)
-            {
-                this.OnRemoveError?.Invoke(this, ex.Message);
-                this.OnError?.Invoke(this, ex.Message);
-            }
-        }
-
-        /// <summary>
-        /// Serializes the watchers into a json and writes to the file
-        /// </summary>
-        /// <param name="watchers">Watchers to save</param>
-        /// <returns>Empty Task</returns>
-        private async Task SaveWatchers(List<Watcher> watchers)
-        {
-            string watchersJson = JsonSerializer.Serialize(watchers);
-            await this.fileSystem.File.WriteAllTextAsync(this.baseDirectory + this.watcherFilePath, watchersJson);
-        }
-
-        /// <summary>
-        /// Reads the file and deserializes the list of watchers
-        /// </summary>
-        /// <returns>Task with a list of saved watchers</returns>
-        private async Task<List<Watcher>> GetWatchers()
-        {
-            string watchersJson = await this.fileSystem.File.ReadAllTextAsync(this.baseDirectory + this.watcherFilePath);
-            if (string.IsNullOrWhiteSpace(watchersJson))
-            {
-                watchersJson = "[]";
+                this.logService.Error("Watcher Name canot be blank");
+                throw new ArgumentException("Name cannot be blank", nameof(watcher));
             }
 
-            return JsonSerializer.Deserialize<List<Watcher>>(watchersJson);
+            if (string.IsNullOrWhiteSpace(watcher.ProcessName))
+            {
+                this.logService.Error("Watcher Process Name cannot be blank");
+                throw new ArgumentException("Process Name cannot be blank", nameof(watcher));
+            }
+
+            if (watcher.ProcessCount <= 0)
+            {
+                this.logService.Error("Watcher Process Count cannot be less than 1");
+                throw new ArgumentException("Process Count cannot be less than 1", nameof(watcher));
+            }
         }
     }
 }

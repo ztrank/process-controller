@@ -7,11 +7,9 @@ using ProcessController.Models;
 
 namespace ProcessController.Services
 {
-    public interface IProcessService
+    public interface ILogWatcher
     {
-        void Monitor(string processName);
-        Process Get(int id);
-        List<Process> Get(string name);
-        void CleanUp();
+        event EventHandler<LogEvent> OnLog;
+        void Log(LogEvent @event);
     }
 }

@@ -7,11 +7,9 @@ using ProcessController.Models;
 
 namespace ProcessController.Services
 {
-    public interface IProcessService
+    public interface IEventBus
     {
-        void Monitor(string processName);
-        Process Get(int id);
-        List<Process> Get(string name);
-        void CleanUp();
+        event EventHandler<ApplicationEvent> OnEvent;
+        void Publish<T>(object sender, T @event) where T : ApplicationEvent;
     }
 }

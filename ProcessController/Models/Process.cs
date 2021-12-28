@@ -1,18 +1,58 @@
-﻿namespace ProcessController.Models
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using ProcessController.Enums;
+
+namespace ProcessController.Models
 {
-    /// <summary>
-    /// Process Class
-    /// </summary>
     public class Process
     {
-        /// <summary>
-        /// Gets or sets the Process Id
-        /// </summary>
-        public int PID { get; set; }
+        public string Name { get; }
+        public int Id { get; }
+        public bool HasExited
+        {
+            get
+            {
+                return this.process.HasExited;
+            }
+        }
+        public int ExitCode
+        {
+            get
+            {
+                return this.process.ExitCode;
+            }
+        }
+        public ProcessStatus Status
+        {
+            get
+            {
+                if (this.HasExited)
+                {
+                    if (this.ExitCode > 0)
+                    {
+                        return ProcessStatus.Crashed;
+                    }
+                    else
+                    {
+                        return ProcessStatus.Shutdown;
+                    }
+                }
+                else
+                {
+                    return ProcessStatus.Running;
+                }
+            }
+        }
+        private System.Diagnostics.Process process;
 
-        /// <summary>
-        /// Gets or sets the process name
-        /// </summary>
-        public string Name { get; set; }
+        public Process(System.Diagnostics.Process process)
+        {
+            this.Name = process.ProcessName;
+            this.Id = process.Id;
+            this.process = process;
+        }
     }
 }

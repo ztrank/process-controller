@@ -3,15 +3,13 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using ProcessController.Enums;
 using ProcessController.Models;
 
 namespace ProcessController.Services
 {
-    public interface IProcessService
+    public interface IWatcherStatusService
     {
-        void Monitor(string processName);
-        Process Get(int id);
-        List<Process> Get(string name);
-        void CleanUp();
+        WatcherStatus GetStatus(Watcher watcher);
     }
 }
