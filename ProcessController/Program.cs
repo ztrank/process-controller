@@ -6,6 +6,7 @@ using System.Windows.Forms;
 using Microsoft.Extensions.DependencyInjection;
 using ProcessController.Models;
 using ProcessController.Services;
+using ProcessController.Services.Implementations;
 
 namespace ProcessController
 {
@@ -29,38 +30,48 @@ namespace ProcessController
 
             using(ServiceProvider provider = container.BuildServiceProvider())
             {
-                IApplicationTimer timer = provider.GetRequiredService<IApplicationTimer>();
-                timer.Start(2000);
+                // Get Services that need configuring
+                ISettingsService settings = provider.GetRequiredService<ISettingsService>();
+                ApplicationService applicationService = provider.GetRequiredService<ApplicationService>();
+
+                // Init the settings with the base directory
+                settings.Init(AppDomain.CurrentDomain.BaseDirectory);
+
+                // Start the application tick
+                Timer timer = new Timer();
+                timer.Interval = 2000;
+                timer.Start();
+                timer.Tick += (sender, e) => applicationService.OnTick(applicationService, e);
+
+                // Set the Idle event
+                Application.Idle += applicationService.OnIdle;
+
+                // Create the main form
                 Form main = provider.GetRequiredService<Forms.MainForm>();
+
+                // Run the application
                 Application.Run(main);
             }   
         }
 
         static void ConfigureSettings(ServiceCollection container)
         {
-            container.AddSingleton(new AppSettings()
-            {
-                SaveDirectory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "saved"),
-                SaveFile = "saved.db"
-            });
+            container.AddSingleton(new ApplicationSettings());
         }
 
         static void ConfigureServices(ServiceCollection container)
         {
-            container.AddSingleton<ISaveService, SaveService>()
-                .AddSingleton(typeof(ILogService<>), typeof(LogService<>))
+            container
+                .AddSingleton<ApplicationService>()
+                .AddSingleton<IApplicationService>(x => x.GetRequiredService<ApplicationService>())
+                .AddSingleton<ILogServiceFactory, LogServiceFactory>()
                 .AddSingleton<ILogWatcher, LogWatcher>()
-                .AddSingleton<IProcessService, ProcessService>()
-                .AddSingleton<ApplicationTimer>()
-                .AddSingleton<IApplicationTick>(x => x.GetRequiredService<ApplicationTimer>())
-                .AddSingleton<IApplicationTimer>(x => x.GetRequiredService<ApplicationTimer>())
-                .AddSingleton<IWatcherService, WatcherService>()
+                .AddSingleton<ISettingsService, SettingsService>()
                 .AddSingleton<IEventBus, EventBus>()
-                .AddScoped<IWatcherStatusService, WatcherStatusService>();
-                
-            /*container.AddSingleton<IEventBus, EventBus>()
-                .AddSingleton<IWatcherService, WatcherService>()
-                .AddScoped<IProcessService, ProcessService>();*/
+                .AddSingleton<ISaveService, SaveService>()
+                .AddScoped<IProcessService, ProcessService>()
+                .AddSingleton<IProcessWatcherService, ProcessWatcherService>()
+                .AddSingleton<IFileSystem, FileSystem>();
         }
 
         static void ConfigureFactories(ServiceCollection container)

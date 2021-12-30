@@ -9,7 +9,7 @@ namespace ProcessController.Services
 {
     public interface ILogWatcher
     {
-        event EventHandler<LogEvent> OnLog;
-        void Log(LogEvent @event);
+        event EventHandler<LogEntry> Log;
+        void Publish(LogEntry entry);
     }
 }

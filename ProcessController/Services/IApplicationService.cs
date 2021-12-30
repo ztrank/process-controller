@@ -3,12 +3,14 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
-using ProcessController.Models;
 
 namespace ProcessController.Services
 {
-    public interface IProcessService
+    public interface IApplicationService
     {
-        List<Process> Get(string processName);
+        event EventHandler Tick;
+        event EventHandler Idle;
+
+        void Close();
     }
 }

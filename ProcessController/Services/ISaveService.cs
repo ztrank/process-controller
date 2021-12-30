@@ -9,10 +9,11 @@ namespace ProcessController.Services
 {
     public interface ISaveService
     {
-        SaveState Load();
-        void Save(Watcher watcher);
-        void Save(Models.Action action);
-        void Remove(Watcher watcher);
-        void Remove(Models.Action action);
+        event EventHandler SaveComplete;
+        event EventHandler<Exception> SaveFailure;
+
+        void QueueForSave(ProcessWatcher watcher);
+        void QueueForDelete(ProcessWatcher watcher);
+        List<ProcessWatcher> LoadWatchers();
     }
 }
