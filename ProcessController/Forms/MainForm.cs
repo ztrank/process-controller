@@ -7,61 +7,82 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
-using ProcessController.Components.Interfaces;
-using ProcessController.Models;
+using ProcessController.Events;
 using ProcessController.Services;
+using ProcessController.Views;
 
 namespace ProcessController.Forms
 {
     public partial class MainForm : Form
     {
-        private readonly IWatcherService watcherService;
-        private readonly IWatcherDataGridController watcherDataGridController;
-        private bool suspended = false;
+        private readonly ILogService<MainForm> logService;
+        private readonly IEventBus eventBus;
+        private readonly IApplicationService applicationService;
+        private bool isDirty = false;
 
-        public event EventHandler OnAddRequest;
-        public event EventHandler<Watcher> OnRemoveRequest;
-
-        public MainForm(IWatcherService watcherService, IWatcherDataGridController watcherDataGridController)
+        public MainForm(
+            IProcessWatcherService processWatcherService, 
+            ILogWatcher logWatcher,
+            ILogServiceFactory logServiceFactory,
+            IApplicationService applicationService,
+            IEventBus eventBus)
         {
+            this.logService = logServiceFactory.Create<MainForm>();
+            this.applicationService = applicationService;
+            this.eventBus = eventBus;
             InitializeComponent();
-            this.watcherDataGridController = watcherDataGridController;
-            this.watcherService = watcherService;
-
-            this.watcherDataGridController.Initialize(this.WatcherDataGridView);
+            this.processWatcherSidebarView.Provide(processWatcherService, logServiceFactory, applicationService);
+            this.processWatcherSidebarView.SelectionChange += this.HandleWatcherSelectionChange;
+            this.logViewer.Provide(logWatcher, Models.LogLevel.Debug | Models.LogLevel.Info | Models.LogLevel.Warn | Models.LogLevel.Error);
+            this.processWatcherDetailView.Provide(logServiceFactory, applicationService, processWatcherService, eventBus);
+            this.processWatcherDetailView.Dirty += (sender, isDirty) =>
+            {
+                this.isDirty = isDirty;
+            };
         }
 
-        public void AddBtn_Click(object sender, EventArgs e)
+        private void HandleWatcherSelectionChange(object sender, int Id)
         {
-            if (!this.suspended)
+            this.logService.Debug("Process Watcher Selection Change: " + Id);
+            this.processWatcherDetailView.SetWatcher(Id);
+        }
+
+        private void newWatcherMenuItem_Click(object sender, EventArgs e)
+        {
+            this.processWatcherDetailView.SetWatcher(-1);
+        }
+
+        private void exitMenuItem_Click(object sender, EventArgs e)
+        {
+            if (this.isDirty)
             {
-                this.OnAddRequest?.Invoke(sender, e);
+                DialogResult result = MessageBox.Show("You have unsaved changes. Would you like to save before exiting?", "", MessageBoxButtons.YesNoCancel);
+                if (result == DialogResult.Yes)
+                {
+                    this.eventBus.Subscriptions += this.SaveOnExitComplete;
+                    this.processWatcherDetailView.Save();
+                }
+                else if(result == DialogResult.No)
+                {
+                    this.applicationService.Close();
+                }
+            }
+            else
+            {
+                this.applicationService.Close();
             }
         }
 
-        public void HandleLoadWatchers(List<Watcher> watchers)
+        private void SaveOnExitComplete(object sender, ApplicationEvent @event)
         {
-            this.watcherDataGridController.SetData(watchers);
-        }
-
-        public void HandleAddWatcher(Watcher watcher)
-        {
-            this.watcherDataGridController.HandleAdd(watcher);
-        }
-
-        public void HandleRemoveWatcher(Watcher watcher)
-        {
-            this.watcherDataGridController.HandleRemove(watcher);
-        }
-
-        public void Suspend()
-        {
-            this.suspended = true;
-        }
-
-        public void Resume()
-        {
-            this.suspended = false;
+            if(@event is SaveCompleteEvent)
+            {
+                this.applicationService.Close();
+            }
+            else if(@event is SaveFailureEvent)
+            {
+                this.eventBus.Subscriptions -= this.SaveOnExitComplete;
+            }
         }
     }
 }

@@ -7,8 +7,9 @@ using ProcessController.Models;
 
 namespace ProcessController.Services
 {
-    public interface IProcessService
+    public interface ILogWatcher
     {
-        List<Process> Get(string processName);
+        event EventHandler<LogEntry> Log;
+        void Publish(LogEntry entry);
     }
 }

@@ -1,10 +1,12 @@
 using System;
+using System.IO;
 using System.IO.Abstractions;
+using System.Text.Json;
 using System.Windows.Forms;
-using ProcessController.Components;
-using ProcessController.Factories;
-using ProcessController.Forms;
+using Microsoft.Extensions.DependencyInjection;
+using ProcessController.Models;
 using ProcessController.Services;
+using ProcessController.Services.Implementations;
 
 namespace ProcessController
 {
@@ -16,35 +18,76 @@ namespace ProcessController
         [STAThread]
         static void Main()
         {
-            IFileSystem fileSystem = new FileSystem();
-            Setup(fileSystem, AppDomain.CurrentDomain.BaseDirectory);
             Application.SetHighDpiMode(HighDpiMode.SystemAware);
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
-            IWatcherService watcherService = new WatcherService(AppDomain.CurrentDomain.BaseDirectory, "/saved/monitors.db");
-            IFormFactory formFactory = new FormFactory(watcherService);
-            ApplicationController controller = new ApplicationController(formFactory, watcherService);
-            controller.Initialize();
-            //IProcessMonitorService processMonitorService = new ProcessMonitorService();
-            
-            /*Timer timer = new Timer();
-            timer.Interval = 5000;
-            timer.Tick += new EventHandler((object sender, EventArgs args) => mainForm.OnTick());
-            timer.Enabled = true;*/
-            Application.Run(controller.GetForm());
+
+            ServiceCollection container = new ServiceCollection();
+            ConfigureServices(container);
+            ConfigureFactories(container);
+            ConfigureForms(container);
+            ConfigureSettings(container);
+
+            using(ServiceProvider provider = container.BuildServiceProvider())
+            {
+                // Get Services that need configuring
+                ISettingsService settings = provider.GetRequiredService<ISettingsService>();
+                ApplicationService applicationService = provider.GetRequiredService<ApplicationService>();
+
+                // Init the settings with the base directory
+                settings.Init(AppDomain.CurrentDomain.BaseDirectory);
+
+                // Start the application tick
+                Timer timer = new Timer();
+                timer.Interval = 2000;
+                timer.Start();
+                timer.Tick += (sender, e) => applicationService.OnTick(applicationService, e);
+
+                // Set the Idle event
+                Application.Idle += applicationService.OnIdle;
+
+                // Create the main form
+                Form main = provider.GetRequiredService<Forms.MainForm>();
+
+                // Run the application
+                Application.Run(main);
+            }   
         }
 
-        static void Setup(IFileSystem fileSystem, string basePath)
+        static void ConfigureSettings(ServiceCollection container)
         {
-            if (!fileSystem.Directory.Exists(basePath + "/saved"))
-            {
-                fileSystem.Directory.CreateDirectory(basePath + "/saved");
-            }
+            container.AddSingleton(new ApplicationSettings());
+        }
 
-            if (!fileSystem.File.Exists(basePath + "/saved/monitors.db"))
-            {
-                fileSystem.File.WriteAllText(basePath + "/saved/monitors.db", "[]");
-            }
+        static void ConfigureServices(ServiceCollection container)
+        {
+            container
+                .AddSingleton<ApplicationService>()
+                .AddSingleton<IApplicationService>(x => x.GetRequiredService<ApplicationService>())
+                .AddSingleton<ILogServiceFactory, LogServiceFactory>()
+                .AddSingleton<ILogWatcher, LogWatcher>()
+                .AddSingleton<ISettingsService, SettingsService>()
+                .AddSingleton<IEventBus, EventBus>()
+                .AddSingleton<ISaveService, SaveService>()
+                .AddScoped<IProcessService, ProcessService>()
+                .AddSingleton<IProcessWatcherService, ProcessWatcherService>()
+                .AddSingleton<IFileSystem, FileSystem>();
+        }
+
+        static void ConfigureFactories(ServiceCollection container)
+        {
+            /*container.AddSingleton<IMonitorListViewFactory, MonitorListViewFactory>()
+                .AddSingleton<IMonitorDetailFactory, MonitorDetailFactory>();*/
+        }
+
+        static void ConfigureForms(ServiceCollection container)
+        {
+            container.AddScoped<Forms.MainForm>();
+        }
+
+        static void ConfigureCommands(ServiceCollection container)
+        {
+            
         }
     }
 }
